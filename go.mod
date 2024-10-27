@@ -1,4 +1,4 @@
-module github.com/CosmWasm/wasmd
+module github.com/baron-chain/wasmd-bc
 
 go 1.19
 
