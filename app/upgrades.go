@@ -20,24 +20,18 @@ import (
 	icacontrollertypes "github.com/cosmos/ibc-go/v7/modules/apps/27-interchain-accounts/controller/types"
 	icahosttypes "github.com/cosmos/ibc-go/v7/modules/apps/27-interchain-accounts/host/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v7/modules/apps/transfer/types"
-
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
-// UpgradeName defines the on-chain upgrade name for the sample SimApp upgrade
-// from v046 to v047.
-//
-// NOTE: This upgrade defines a reference implementation of what an upgrade
-// could look like when an application is migrating from Cosmos SDK version
-// v0.46.x to v0.47.x.
+// UpgradeName defines the upgrade from v046 to v047, migrating from Cosmos SDK v0.46.x to v0.47.x.
 const UpgradeName = "v046-to-v047"
 
+// RegisterUpgradeHandlers registers the upgrade handlers for the application.
 func (app WasmApp) RegisterUpgradeHandlers() {
-	// Set param key table for params module migration
+	// Set the param key table for params module migration
 	for _, subspace := range app.ParamsKeeper.GetSubspaces() {
-		subspace := subspace
-
 		var keyTable paramstypes.KeyTable
+
 		switch subspace.Name() {
 		case authtypes.ModuleName:
 			keyTable = authtypes.ParamKeyTable() //nolint:staticcheck
@@ -55,14 +49,12 @@ func (app WasmApp) RegisterUpgradeHandlers() {
 			keyTable = govv1.ParamKeyTable() //nolint:staticcheck
 		case crisistypes.ModuleName:
 			keyTable = crisistypes.ParamKeyTable() //nolint:staticcheck
-			// ibc types
 		case ibctransfertypes.ModuleName:
 			keyTable = ibctransfertypes.ParamKeyTable()
 		case icahosttypes.SubModuleName:
 			keyTable = icahosttypes.ParamKeyTable()
 		case icacontrollertypes.SubModuleName:
 			keyTable = icacontrollertypes.ParamKeyTable()
-			// wasm
 		case wasmtypes.ModuleName:
 			keyTable = wasmtypes.ParamKeyTable() //nolint:staticcheck
 		default:
@@ -74,21 +66,21 @@ func (app WasmApp) RegisterUpgradeHandlers() {
 		}
 	}
 
+	// Migrate Tendermint consensus parameters from x/params to x/consensus module
 	baseAppLegacySS := app.ParamsKeeper.Subspace(baseapp.Paramspace).WithKeyTable(paramstypes.ConsensusParamsKeyTable())
 
+	// Register the upgrade handler
 	app.UpgradeKeeper.SetUpgradeHandler(
 		UpgradeName,
 		func(ctx sdk.Context, _ upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
-			// Migrate Tendermint consensus parameters from x/params module to a dedicated x/consensus module.
 			baseapp.MigrateParams(ctx, baseAppLegacySS, &app.ConsensusParamsKeeper)
 
-			// Note: this migration is optional,
-			// You can include x/gov proposal migration documented in [UPGRADING.md](https://github.com/cosmos/cosmos-sdk/blob/main/UPGRADING.md)
-
+			// Note: You can include x/gov proposal migration as documented in UPGRADING.md
 			return app.ModuleManager.RunMigrations(ctx, app.Configurator(), fromVM)
 		},
 	)
 
+	// Handle upgrade info and apply store upgrades if needed
 	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
 	if err != nil {
 		panic(err)
@@ -102,7 +94,7 @@ func (app WasmApp) RegisterUpgradeHandlers() {
 			},
 		}
 
-		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		// Configure store loader to apply store upgrades at the upgrade height
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 }
