@@ -14,10 +14,13 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 )
 
-var emptyWasmOpts []wasm.Option
+var emptyWasmOpts = []wasm.Option{}
 
+// TestWasmdExport ensures that exporting the app state and validators does not return errors.
 func TestWasmdExport(t *testing.T) {
 	db := dbm.NewMemDB()
+
+	// Setup the app with custom options
 	gapp := NewWasmAppWithCustomOptions(t, false, SetupOptions{
 		Logger:  log.NewTMLogger(log.NewSyncWriter(os.Stdout)),
 		DB:      db,
@@ -25,36 +28,47 @@ func TestWasmdExport(t *testing.T) {
 	})
 	gapp.Commit()
 
-	// Making a new app object with the db, so that initchain hasn't been called
-	newGapp := NewWasmApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, wasm.EnableAllProposals, simtestutil.NewAppOptionsWithFlagHome(t.TempDir()), emptyWasmOpts)
+	// Create a new app instance with the same database
+	newGapp := NewWasmApp(
+		log.NewTMLogger(log.NewSyncWriter(os.Stdout)), 
+		db, 
+		nil, 
+		true, 
+		wasm.EnableAllProposals, 
+		simtestutil.NewAppOptionsWithFlagHome(t.TempDir()), 
+		emptyWasmOpts,
+	)
+
+	// Export app state and validators and ensure no error occurs
 	_, err := newGapp.ExportAppStateAndValidators(false, []string{}, nil)
-	require.NoError(t, err, "ExportAppStateAndValidators should not have an error")
+	require.NoError(t, err, "ExportAppStateAndValidators should not return an error")
 }
 
-// ensure that blocked addresses are properly set in bank keeper
+// TestBlockedAddrs verifies that blocked addresses are correctly set in the bank keeper.
 func TestBlockedAddrs(t *testing.T) {
 	gapp := Setup(t)
 
 	for acc := range BlockedAddresses() {
 		t.Run(acc, func(t *testing.T) {
-			var addr sdk.AccAddress
-			if modAddr, err := sdk.AccAddressFromBech32(acc); err == nil {
-				addr = modAddr
-			} else {
+			addr, err := sdk.AccAddressFromBech32(acc)
+			if err != nil {
+				// Fallback to getting module address if Bech32 decoding fails
 				addr = gapp.AccountKeeper.GetModuleAddress(acc)
 			}
-			require.True(t, gapp.BankKeeper.BlockedAddr(addr), "ensure that blocked addresses are properly set in bank keeper")
+			require.True(t, gapp.BankKeeper.BlockedAddr(addr), "Blocked addresses must be set correctly in the bank keeper")
 		})
 	}
 }
 
+// TestGetMaccPerms ensures that the module account permissions are correctly duplicated.
 func TestGetMaccPerms(t *testing.T) {
 	dup := GetMaccPerms()
-	require.Equal(t, maccPerms, dup, "duplicated module account permissions differed from actual module account permissions")
+	require.Equal(t, maccPerms, dup, "Duplicated module account permissions must match actual permissions")
 }
 
+// TestGetEnabledProposals verifies that the correct proposals are enabled based on configuration.
 func TestGetEnabledProposals(t *testing.T) {
-	cases := map[string]struct {
+	testCases := map[string]struct {
 		proposalsEnabled string
 		specificEnabled  string
 		expected         []wasm.ProposalType
@@ -70,15 +84,19 @@ func TestGetEnabledProposals(t *testing.T) {
 		"some enabled": {
 			proposalsEnabled: "okay",
 			specificEnabled:  "StoreCode,InstantiateContract",
-			expected:         []wasm.ProposalType{wasm.ProposalTypeStoreCode, wasm.ProposalTypeInstantiateContract},
+			expected: []wasm.ProposalType{
+				wasm.ProposalTypeStoreCode,
+				wasm.ProposalTypeInstantiateContract,
+			},
 		},
 	}
 
-	for name, tc := range cases {
+	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ProposalsEnabled = tc.proposalsEnabled
 			EnableSpecificProposals = tc.specificEnabled
 			proposals := GetEnabledProposals()
+
 			assert.Equal(t, tc.expected, proposals)
 		})
 	}
