@@ -13,8 +13,7 @@ import (
 	wasmTypes "github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
-// HandlerOptions extend the SDK's AnteHandler options by requiring the IBC
-// channel keeper.
+// HandlerOptions extends the SDK's AnteHandler options by requiring additional fields for IBC and Wasm modules.
 type HandlerOptions struct {
 	ante.HandlerOptions
 
@@ -23,7 +22,9 @@ type HandlerOptions struct {
 	TXCounterStoreKey storetypes.StoreKey
 }
 
+// NewAnteHandler creates a new AnteHandler for the application using the provided HandlerOptions.
 func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
+	// Check required dependencies
 	if options.AccountKeeper == nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "account keeper is required for AnteHandler")
 	}
@@ -31,32 +32,34 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, error) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "bank keeper is required for AnteHandler")
 	}
 	if options.SignModeHandler == nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "sign mode handler is required for ante builder")
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "sign mode handler is required for AnteHandler")
 	}
 	if options.WasmConfig == nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "wasm config is required for AnteHandler")
 	}
 	if options.TXCounterStoreKey == nil {
-		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "tx counter key is required for ante builder")
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "tx counter key is required for AnteHandler")
 	}
 
+	// Create the sequence of AnteDecorators
 	anteDecorators := []sdk.AnteDecorator{
-		ante.NewSetUpContextDecorator(), // outermost AnteDecorator. SetUpContext must be called first
-		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit), // after setup context to enforce limits early
-		wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey),
-		ante.NewExtensionOptionsDecorator(options.ExtensionOptionChecker),
-		ante.NewValidateBasicDecorator(),
-		ante.NewTxTimeoutHeightDecorator(),
-		ante.NewValidateMemoDecorator(options.AccountKeeper),
-		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
-		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker),
-		ante.NewSetPubKeyDecorator(options.AccountKeeper), // SetPubKeyDecorator must be called before all signature verification decorators
-		ante.NewValidateSigCountDecorator(options.AccountKeeper),
-		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer),
-		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler),
-		ante.NewIncrementSequenceDecorator(options.AccountKeeper),
-		ibcante.NewRedundantRelayDecorator(options.IBCKeeper),
+		ante.NewSetUpContextDecorator(), // Must be called first
+		wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit), // Enforce gas limits early
+		wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey), // Track transaction counts
+		ante.NewExtensionOptionsDecorator(options.ExtensionOptionChecker), // Process extension options
+		ante.NewValidateBasicDecorator(), // Basic validation
+		ante.NewTxTimeoutHeightDecorator(), // Timeout height check
+		ante.NewValidateMemoDecorator(options.AccountKeeper), // Validate transaction memo
+		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper), // Consume gas based on tx size
+		ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.TxFeeChecker), // Deduct fees
+		ante.NewSetPubKeyDecorator(options.AccountKeeper), // Set the public key for the transaction
+		ante.NewValidateSigCountDecorator(options.AccountKeeper), // Validate signature count
+		ante.NewSigGasConsumeDecorator(options.AccountKeeper, options.SigGasConsumer), // Consume gas for signatures
+		ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler), // Verify signatures
+		ante.NewIncrementSequenceDecorator(options.AccountKeeper), // Increment the sequence number
+		ibcante.NewRedundantRelayDecorator(options.IBCKeeper), // Handle redundant relays for IBC
 	}
 
+	// Chain the AnteDecorators and return the handler
 	return sdk.ChainAnteDecorators(anteDecorators...), nil
 }
