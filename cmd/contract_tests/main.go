@@ -2,43 +2,106 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/snikch/goodman/hooks"
 	"github.com/snikch/goodman/transaction"
 )
 
-func main() {
-	// This must be compiled beforehand and given to dredd as parameter, in the meantime the server should be running
+const (
+	endpointVersion     = "/version > GET"
+	endpointNodeVersion = "/node_version > GET"
+)
+
+type HookManager struct {
+	hooks   *hooks.Hooks
+	server  *hooks.Server
+	logger  *log.Logger
+}
+
+func NewHookManager() *HookManager {
 	h := hooks.NewHooks()
-	server := hooks.NewServer(hooks.NewHooksRunner(h))
-	h.BeforeAll(func(t []*transaction.Transaction) {
-		fmt.Println("Sleep 5 seconds before all modification")
+	return &HookManager{
+		hooks:   h,
+		server:  hooks.NewServer(hooks.NewHooksRunner(h)),
+		logger:  log.New(log.Writer(), "[Dredd Hooks] ", log.LstdFlags),
+	}
+}
+
+func (hm *HookManager) registerHooks() {
+	hm.registerGlobalHooks()
+	hm.registerEndpointSpecificHooks()
+}
+
+func (hm *HookManager) registerGlobalHooks() {
+	// BeforeAll hooks
+	hm.hooks.BeforeAll(func(t []*transaction.Transaction) {
+		hm.logger.Println("Sleep 5 seconds before all modification")
 	})
-	h.BeforeEach(func(t *transaction.Transaction) {
-		fmt.Println("before each modification")
+
+	// BeforeEach hooks
+	hm.hooks.BeforeEach(func(t *transaction.Transaction) {
+		hm.logger.Println("before each modification")
 	})
-	h.Before("/version > GET", func(t *transaction.Transaction) {
-		fmt.Println("before version TEST")
+
+	// BeforeEachValidation hooks
+	hm.hooks.BeforeEachValidation(func(t *transaction.Transaction) {
+		hm.logger.Println("before each validation modification")
 	})
-	h.Before("/node_version > GET", func(t *transaction.Transaction) {
-		fmt.Println("before node_version TEST")
+
+	// AfterEach hooks
+	hm.hooks.AfterEach(func(t *transaction.Transaction) {
+		hm.logger.Println("after each modification")
 	})
-	h.BeforeEachValidation(func(t *transaction.Transaction) {
-		fmt.Println("before each validation modification")
+
+	// AfterAll hooks
+	hm.hooks.AfterAll(func(t []*transaction.Transaction) {
+		hm.logger.Println("after all modification")
 	})
-	h.BeforeValidation("/node_version > GET", func(t *transaction.Transaction) {
-		fmt.Println("before validation node_version TEST")
+}
+
+func (hm *HookManager) registerEndpointSpecificHooks() {
+	// Version endpoint hooks
+	hm.hooks.Before(endpointVersion, func(t *transaction.Transaction) {
+		hm.logger.Println("before version TEST")
 	})
-	h.After("/node_version > GET", func(t *transaction.Transaction) {
-		fmt.Println("after node_version TEST")
+
+	// NodeVersion endpoint hooks
+	hm.registerNodeVersionHooks()
+}
+
+func (hm *HookManager) registerNodeVersionHooks() {
+	// Before hook
+	hm.hooks.Before(endpointNodeVersion, func(t *transaction.Transaction) {
+		hm.logger.Println("before node_version TEST")
 	})
-	h.AfterEach(func(t *transaction.Transaction) {
-		fmt.Println("after each modification")
+
+	// BeforeValidation hook
+	hm.hooks.BeforeValidation(endpointNodeVersion, func(t *transaction.Transaction) {
+		hm.logger.Println("before validation node_version TEST")
 	})
-	h.AfterAll(func(t []*transaction.Transaction) {
-		fmt.Println("after all modification")
+
+	// After hook
+	hm.hooks.After(endpointNodeVersion, func(t *transaction.Transaction) {
+		hm.logger.Println("after node_version TEST")
 	})
-	server.Serve()
-	defer server.Listener.Close()
-	fmt.Print(h)
+}
+
+func (hm *HookManager) start() error {
+	defer hm.server.Listener.Close()
+	
+	hm.logger.Println("Starting Dredd hooks server...")
+	if err := hm.server.Serve(); err != nil {
+		return fmt.Errorf("failed to start hooks server: %w", err)
+	}
+	return nil
+}
+
+func main() {
+	hookManager := NewHookManager()
+	hookManager.registerHooks()
+
+	if err := hookManager.start(); err != nil {
+		log.Fatalf("Error running hooks server: %v", err)
+	}
 }
