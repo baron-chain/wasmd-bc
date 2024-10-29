@@ -1,42 +1,42 @@
 package params
 
-// Default simulation operation weights for messages and gov proposals
 const (
-	DefaultWeightMsgSend                        int = 100
-	DefaultWeightMsgMultiSend                   int = 10
-	DefaultWeightMsgSetWithdrawAddress          int = 50
-	DefaultWeightMsgWithdrawDelegationReward    int = 50
-	DefaultWeightMsgWithdrawValidatorCommission int = 50
-	DefaultWeightMsgFundCommunityPool           int = 50
-	DefaultWeightMsgDeposit                     int = 100
-	DefaultWeightMsgVote                        int = 67
-	DefaultWeightMsgUnjail                      int = 100
-	DefaultWeightMsgCreateValidator             int = 100
-	DefaultWeightMsgEditValidator               int = 5
-	DefaultWeightMsgDelegate                    int = 100
-	DefaultWeightMsgUndelegate                  int = 100
-	DefaultWeightMsgBeginRedelegate             int = 100
+    WeightMsgSend                        = 100
+    WeightMsgMultiSend                   = 10
+    WeightMsgDeposit                     = 100
+    WeightMsgVote                        = 67
 
-	DefaultWeightCommunitySpendProposal int = 5
-	DefaultWeightTextProposal           int = 5
-	DefaultWeightParamChangeProposal    int = 5
+    WeightMsgDelegate                    = 100
+    WeightMsgUndelegate                  = 100
+    WeightMsgBeginRedelegate            = 100
+    WeightMsgCreateValidator            = 100
+    WeightMsgEditValidator              = 5
+    WeightMsgUnjail                     = 100
 
-	DefaultWeightMsgStoreCode           int = 50
-	DefaultWeightMsgInstantiateContract int = 100
-	DefaultWeightMsgExecuteContract     int = 100
-	DefaultWeightMsgUpdateAdmin         int = 25
-	DefaultWeightMsgClearAdmin          int = 10
-	DefaultWeightMsgMigrateContract     int = 50
+    WeightMsgSetWithdrawAddress         = 50
+    WeightMsgWithdrawDelegationReward   = 50
+    WeightMsgWithdrawValidatorCommission = 50
+    WeightMsgFundCommunityPool          = 50
 
-	DefaultWeightStoreCodeProposal                   int = 5
-	DefaultWeightInstantiateContractProposal         int = 5
-	DefaultWeightUpdateAdminProposal                 int = 5
-	DefaultWeightExecuteContractProposal             int = 5
-	DefaultWeightClearAdminProposal                  int = 5
-	DefaultWeightMigrateContractProposal             int = 5
-	DefaultWeightSudoContractProposal                int = 5
-	DefaultWeightPinCodesProposal                    int = 5
-	DefaultWeightUnpinCodesProposal                  int = 5
-	DefaultWeightUpdateInstantiateConfigProposal     int = 5
-	DefaultWeightStoreAndInstantiateContractProposal int = 5
+    WeightMsgStoreCode                  = 50
+    WeightMsgInstantiateContract        = 100
+    WeightMsgExecuteContract            = 100
+    WeightMsgUpdateAdmin                = 25
+    WeightMsgClearAdmin                 = 10
+    WeightMsgMigrateContract            = 50
+
+    WeightProposalCommunitySpend        = 5
+    WeightProposalText                  = 5
+    WeightProposalParamChange           = 5
+    WeightProposalStoreCode             = 5
+    WeightProposalInstantiateContract   = 5
+    WeightProposalUpdateAdmin           = 5
+    WeightProposalExecuteContract       = 5
+    WeightProposalClearAdmin            = 5
+    WeightProposalMigrateContract       = 5
+    WeightProposalSudoContract          = 5
+    WeightProposalPinCodes              = 5
+    WeightProposalUnpinCodes            = 5
+    WeightProposalInstantiateConfig     = 5
+    WeightProposalStoreAndInstantiate   = 5
 )
