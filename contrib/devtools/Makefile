@@ -1,85 +1,98 @@
-###
-# Find OS and Go environment
-# GO contains the Go binary
-# FS contains the OS file separator
-###
+###############################################################################
+###                             Environment Setup                           ###
+###############################################################################
+
+# OS detection and file system separator
 ifeq ($(OS),Windows_NT)
-  GO := $(shell where go.exe 2> NUL)
-  FS := "\\"
+    GO := $(shell where go.exe 2> NUL)
+    FS := \\
+    MKDIR := IF NOT EXIST $(1) ( mkdir $(1) ) else (cd .)
+    CLONE := IF NOT EXIST $(1) ( cd $(2) && git clone $(3) ) else (cd .)
 else
-  GO := $(shell command -v go 2> /dev/null)
-  FS := "/"
+    GO := $(shell command -v go 2> /dev/null)
+    FS := /
+    MKDIR := mkdir -p $(1)
+    CLONE := (test ! -d $(1) && cd $(2) && git clone $(3)) || true
 endif
 
+# Verify Go installation
 ifeq ($(GO),)
-  $(error could not find go. Is it in PATH? $(GO))
+    $(error Could not find Go installation. Please ensure Go is installed and in PATH)
 endif
 
 ###############################################################################
-###                                Functions                                ###
+###                               Variables                                  ###
 ###############################################################################
 
-go_get = $(if $(findstring Windows_NT,$(OS)),\
-IF NOT EXIST $(GITHUBDIR)$(FS)$(1)$(FS) ( mkdir $(GITHUBDIR)$(FS)$(1) ) else (cd .) &\
-IF NOT EXIST $(GITHUBDIR)$(FS)$(1)$(FS)$(2)$(FS) ( cd $(GITHUBDIR)$(FS)$(1) && git clone https://github.com/$(1)/$(2) ) else (cd .) &\
-,\
-mkdir -p $(GITHUBDIR)$(FS)$(1) &&\
-(test ! -d $(GITHUBDIR)$(FS)$(1)$(FS)$(2) && cd $(GITHUBDIR)$(FS)$(1) && git clone https://github.com/$(1)/$(2)) || true &&\
-)\
-cd $(GITHUBDIR)$(FS)$(1)$(FS)$(2) && git fetch origin && git checkout -q $(3)
+# Directory structure
+PREFIX        ?= /usr/local
+BIN           ?= $(PREFIX)/bin
+GOPATH        ?= $(shell $(GO) env GOPATH)
+GITHUBDIR     := $(GOPATH)$(FS)src$(FS)github.com
+TOOLS_DESTDIR ?= $(GOPATH)/bin
 
-mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
-mkfile_dir := $(shell cd $(shell dirname $(mkfile_path)); pwd)
+# Tool versions
+BUF_VERSION      ?= 0.11.0
+STATIK_VERSION   := v0.1.6
+RUNSIM_VERSION   := v1.0.0
+GOLANGCI_VERSION := v1.47.0
 
+# Tool binaries
+STATIK          = $(TOOLS_DESTDIR)/statik
+RUNSIM          = $(TOOLS_DESTDIR)/runsim
+GOLANGCI_LINT   = $(TOOLS_DESTDIR)/golangci-lint
 
-###############################################################################
-###                                 Tools                                   ###
-###############################################################################
-
-PREFIX ?= /usr/local
-BIN ?= $(PREFIX)/bin
+# System information
 UNAME_S ?= $(shell uname -s)
 UNAME_M ?= $(shell uname -m)
 
-GOPATH ?= $(shell $(GO) env GOPATH)
-GITHUBDIR := $(GOPATH)$(FS)src$(FS)github.com
+# Makefile information
+mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
+mkfile_dir  := $(shell cd $(shell dirname $(mkfile_path)); pwd)
 
-BUF_VERSION ?= 0.11.0
+###############################################################################
+###                              Functions                                   ###
+###############################################################################
 
-TOOLS_DESTDIR  ?= $(GOPATH)/bin
-STATIK         = $(TOOLS_DESTDIR)/statik
-RUNSIM         = $(TOOLS_DESTDIR)/runsim
-GOLANGCI_LINT  = $(TOOLS_DESTDIR)/golangci-lint
+# Function to handle repository cloning
+define go_get
+	$(call MKDIR,$(GITHUBDIR)$(FS)$(1))
+	$(call CLONE,$(GITHUBDIR)$(FS)$(1)$(FS)$(2),$(GITHUBDIR)$(FS)$(1),https://github.com/$(1)/$(2))
+	cd $(GITHUBDIR)$(FS)$(1)$(FS)$(2) && git fetch origin && git checkout -q $(3)
+endef
+
+###############################################################################
+###                           Tool Installation                              ###
+###############################################################################
+
+.PHONY: tools tools-clean statik runsim golangci-lint
 
 tools: tools-stamp
+
 tools-stamp: statik runsim golangci-lint
-	# Create dummy file to satisfy dependency and avoid
-	# rebuilding when this Makefile target is hit twice
-	# in a row.
 	touch $@
 
+# Statik installation
 statik: $(STATIK)
 $(STATIK):
-	@echo "Installing statik..."
-	@(cd /tmp && go install github.com/rakyll/statik@v0.1.6)
+	@echo "Installing statik $(STATIK_VERSION)..."
+	@(cd /tmp && go install github.com/rakyll/statik@$(STATIK_VERSION))
 
-# Install the runsim binary with a temporary workaround of entering an outside
-# directory as the "go get" command ignores the -mod option and will polute the
-# go.{mod, sum} files.
-#
-# ref: https://github.com/golang/go/issues/30515
+# Runsim installation
+# Note: Using temporary directory to avoid go.mod pollution
 runsim: $(RUNSIM)
 $(RUNSIM):
-	@echo "Installing runsim..."
-	@(cd /tmp && go install github.com/cosmos/tools/cmd/runsim@v1.0.0)
+	@echo "Installing runsim $(RUNSIM_VERSION)..."
+	@(cd /tmp && go install github.com/cosmos/tools/cmd/runsim@$(RUNSIM_VERSION))
 
+# Golangci-lint installation
 golangci-lint: $(GOLANGCI_LINT)
 $(GOLANGCI_LINT):
-	@echo "Installing golangci-lint..."
-	@(cd /tmp && go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.47.0)
+	@echo "Installing golangci-lint $(GOLANGCI_VERSION)..."
+	@(cd /tmp && go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_VERSION))
 
+# Cleanup tools
 tools-clean:
+	@echo "Cleaning tools..."
 	rm -f $(STATIK) $(GOLANGCI_LINT) $(RUNSIM)
 	rm -f tools-stamp
-
-.PHONY: tools-clean statik runsim
