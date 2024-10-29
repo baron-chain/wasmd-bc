@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/cosmos/cosmos-sdk/server"
@@ -9,16 +10,34 @@ import (
 	"github.com/CosmWasm/wasmd/app"
 )
 
+const (
+	appEnvPrefix = "" // Empty string means no environment variable prefix
+)
+
 func main() {
+	if err := run(); err != nil {
+		handleError(err)
+	}
+}
+
+func run() error {
 	rootCmd, _ := NewRootCmd()
+	return svrcmd.Execute(rootCmd, appEnvPrefix, app.DefaultNodeHome)
+}
 
-	if err := svrcmd.Execute(rootCmd, "", app.DefaultNodeHome); err != nil {
-		switch e := err.(type) {
-		case server.ErrorCode:
-			os.Exit(e.Code)
+func handleError(err error) {
+	exitCode := getExitCode(err)
+	if exitCode > 1 {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+	os.Exit(exitCode)
+}
 
-		default:
-			os.Exit(1)
-		}
+func getExitCode(err error) int {
+	switch e := err.(type) {
+	case server.ErrorCode:
+		return e.Code
+	default:
+		return 1
 	}
 }
