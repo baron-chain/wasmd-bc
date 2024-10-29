@@ -1,11 +1,65 @@
+# Prometheus Configuration for Wasmd Monitoring
+
+# Global configuration
 global:
-  scrape_interval:     15s # By default, scrape targets every 15 seconds.
-  evaluation_interval: 15s # By default, scrape targets every 15 seconds.
+  # How frequently to scrape targets
+  scrape_interval: 15s
+  
+  # How frequently to evaluate rules
+  evaluation_interval: 15s
+  
+  # Default timeout for HTTP requests
+  scrape_timeout: 10s
+  
+  # Labels to add to all time series and alerts
+  external_labels:
+    environment: 'wasmd'
+    region: 'local'
+
+# Rules configuration (empty for now but structured for future use)
 rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
 
+# Scraping configurations
 scrape_configs:
-- job_name: wasmd
+  # Wasmd node monitoring
+  - job_name: 'wasmd'
+    metrics_path: '/metrics'
+    scheme: 'http'
+    
+    # More frequent scraping for Wasmd
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    
+    # Target configuration
+    static_configs:
+      - targets: 
+        - 'host.docker.internal:26660'
+        
+        # Optional: Add labels to identify the instance
+        labels:
+          instance_type: 'docker'
+          service: 'wasmd'
+    
+    # Optional: Relabeling configurations
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '(.+)'
+        replacement: '${1}'
+    
+    # Optional: Metric relabeling
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'go_.*'
+        action: keep
 
-  scrape_interval: 5s
-  static_configs:
-    - targets: ['host.docker.internal:26660']
+    # Connection parameters
+    tls_config:
+      insecure_skip_verify: true  # For development only
+    
+    # Basic authentication if needed
+    # basic_auth:
+    #   username: 'prometheus'
+    #   password: 'password'
