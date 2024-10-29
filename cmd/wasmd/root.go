@@ -11,20 +11,12 @@ import (
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/client/debug"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/keys"
-	"github.com/cosmos/cosmos-sdk/client/pruning"
-	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/server"
-	serverconfig "github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/version"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/crisis"
-	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -37,19 +29,49 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
-// NewRootCmd creates a new root command for wasmd. It is called once in the
-// main function.
+const (
+	defaultMinGasPrice = "0stake"
+)
+
+type CustomAppConfig struct {
+	server.Config
+	Wasm wasmtypes.WasmConfig `mapstructure:"wasm"`
+}
+
+// NewRootCmd creates a new root command for wasmd
 func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 	encodingConfig := app.MakeEncodingConfig()
+	initConfig(encodingConfig)
 
+	rootCmd := &cobra.Command{
+		Use:   version.AppName,
+		Short: "Wasm Daemon (server)",
+		PersistentPreRunE: createPreRunE(encodingConfig),
+	}
+
+	initRootCmd(rootCmd, encodingConfig)
+	return rootCmd, encodingConfig
+}
+
+func initConfig(encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
 	cfg.SetBech32PrefixForAccount(app.Bech32PrefixAccAddr, app.Bech32PrefixAccPub)
 	cfg.SetBech32PrefixForValidator(app.Bech32PrefixValAddr, app.Bech32PrefixValPub)
 	cfg.SetBech32PrefixForConsensusNode(app.Bech32PrefixConsAddr, app.Bech32PrefixConsPub)
 	cfg.SetAddressVerifier(wasmtypes.VerifyAddressLen())
 	cfg.Seal()
+}
 
-	initClientCtx := client.Context{}.
+func createPreRunE(encodingConfig params.EncodingConfig) func(*cobra.Command, []string) error {
+	initClientCtx := createInitialClientContext(encodingConfig)
+
+	return func(cmd *cobra.Command, _ []string) error {
+		return setupCommandContext(cmd, initClientCtx)
+	}
+}
+
+func createInitialClientContext(encodingConfig params.EncodingConfig) client.Context {
+	return client.Context{}.
 		WithCodec(encodingConfig.Marshaler).
 		WithInterfaceRegistry(encodingConfig.InterfaceRegistry).
 		WithTxConfig(encodingConfig.TxConfig).
@@ -57,133 +79,50 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		WithInput(os.Stdin).
 		WithAccountRetriever(authtypes.AccountRetriever{}).
 		WithHomeDir(app.DefaultNodeHome).
-		WithViper("") // In wasmd, we don't use any prefix for env variables.
-
-	rootCmd := &cobra.Command{
-		Use:   version.AppName,
-		Short: "Wasm Daemon (server)",
-		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			// set the default command outputs
-			cmd.SetOut(cmd.OutOrStdout())
-			cmd.SetErr(cmd.ErrOrStderr())
-
-			initClientCtx, err := client.ReadPersistentCommandFlags(initClientCtx, cmd.Flags())
-			if err != nil {
-				return err
-			}
-
-			initClientCtx, err = config.ReadFromClientConfig(initClientCtx)
-			if err != nil {
-				return err
-			}
-
-			if err := client.SetCmdClientContextHandler(initClientCtx, cmd); err != nil {
-				return err
-			}
-
-			customAppTemplate, customAppConfig := initAppConfig()
-			customTMConfig := initTendermintConfig()
-
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig, customTMConfig)
-		},
-	}
-
-	initRootCmd(rootCmd, encodingConfig)
-
-	return rootCmd, encodingConfig
+		WithViper("")
 }
 
-// initTendermintConfig helps to override default Tendermint Config values.
-// return tmcfg.DefaultConfig if no custom configuration is required for the application.
+func setupCommandContext(cmd *cobra.Command, initialClientCtx client.Context) error {
+	cmd.SetOut(cmd.OutOrStdout())
+	cmd.SetErr(cmd.ErrOrStderr())
+
+	clientCtx, err := client.ReadPersistentCommandFlags(initialClientCtx, cmd.Flags())
+	if err != nil {
+		return err
+	}
+
+	clientCtx, err = config.ReadFromClientConfig(clientCtx)
+	if err != nil {
+		return err
+	}
+
+	if err := client.SetCmdClientContextHandler(clientCtx, cmd); err != nil {
+		return err
+	}
+
+	customAppTemplate, customAppConfig := initAppConfig()
+	return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig, initTendermintConfig())
+}
+
 func initTendermintConfig() *tmcfg.Config {
-	cfg := tmcfg.DefaultConfig()
-
-	// these values put a higher strain on node memory
-	// cfg.P2P.MaxNumInboundPeers = 100
-	// cfg.P2P.MaxNumOutboundPeers = 40
-
-	return cfg
+	return tmcfg.DefaultConfig()
 }
 
-// initAppConfig helps to override default appConfig template and configs.
-// return "", nil if no custom configuration is required for the application.
 func initAppConfig() (string, interface{}) {
-	// The following code snippet is just for reference.
-
-	type CustomAppConfig struct {
-		serverconfig.Config
-
-		Wasm wasmtypes.WasmConfig `mapstructure:"wasm"`
-	}
-
-	// Optionally allow the chain developer to overwrite the SDK's default
-	// server config.
-	srvCfg := serverconfig.DefaultConfig()
-	// The SDK's default minimum gas price is set to "" (empty value) inside
-	// app.toml. If left empty by validators, the node will halt on startup.
-	// However, the chain developer can set a default app.toml value for their
-	// validators here.
-	//
-	// In summary:
-	// - if you leave srvCfg.MinGasPrices = "", all validators MUST tweak their
-	//   own app.toml config,
-	// - if you set srvCfg.MinGasPrices non-empty, validators CAN tweak their
-	//   own app.toml to override, or use this default value.
-	//
-	// In simapp, we set the min gas prices to 0.
-	srvCfg.MinGasPrices = "0stake"
-	// srvCfg.BaseConfig.IAVLDisableFastNode = true // disable fastnode by default
+	srvCfg := server.DefaultConfig()
+	srvCfg.MinGasPrices = defaultMinGasPrice
 
 	customAppConfig := CustomAppConfig{
 		Config: *srvCfg,
 		Wasm:   wasmtypes.DefaultWasmConfig(),
 	}
 
-	customAppTemplate := serverconfig.DefaultConfigTemplate +
-		wasmtypes.DefaultConfigTemplate()
-
-	return customAppTemplate, customAppConfig
+	return server.DefaultConfigTemplate + wasmtypes.DefaultConfigTemplate(), customAppConfig
 }
 
-func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
-	rootCmd.AddCommand(
-		genutilcli.InitCmd(app.ModuleBasics, app.DefaultNodeHome),
-		// testnetCmd(app.ModuleBasics, banktypes.GenesisBalancesIterator{}),
-		debug.Cmd(),
-		config.Cmd(),
-		pruning.PruningCmd(newApp),
-	)
+// Command Builders
 
-	server.AddCommands(rootCmd, app.DefaultNodeHome, newApp, appExport, addModuleInitFlags)
-
-	// add keybase, auxiliary RPC, query, and tx child commands
-	rootCmd.AddCommand(
-		rpc.StatusCommand(),
-		genesisCommand(encodingConfig),
-		queryCommand(),
-		txCommand(),
-		keys.Commands(app.DefaultNodeHome),
-	)
-	// add rosetta
-	rootCmd.AddCommand(rosettaCmd.RosettaCommand(encodingConfig.InterfaceRegistry, encodingConfig.Marshaler))
-}
-
-func addModuleInitFlags(startCmd *cobra.Command) {
-	crisis.AddModuleInitFlags(startCmd)
-	wasm.AddModuleInitFlags(startCmd)
-}
-
-// genesisCommand builds genesis-related `simd genesis` command. Users may provide application specific commands as a parameter
-func genesisCommand(encodingConfig params.EncodingConfig, cmds ...*cobra.Command) *cobra.Command {
-	cmd := genutilcli.GenesisCoreCommand(encodingConfig.TxConfig, app.ModuleBasics, app.DefaultNodeHome)
-
-	for _, subCmd := range cmds {
-		cmd.AddCommand(subCmd)
-	}
-	return cmd
-}
-
-func queryCommand() *cobra.Command {
+func buildQueryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "query",
 		Aliases:                    []string{"q"},
@@ -193,6 +132,11 @@ func queryCommand() *cobra.Command {
 		RunE:                       client.ValidateCmd,
 	}
 
+	addQuerySubCommands(cmd)
+	return cmd
+}
+
+func addQuerySubCommands(cmd *cobra.Command) {
 	cmd.AddCommand(
 		authcmd.GetAccountCmd(),
 		rpc.ValidatorCommand(),
@@ -200,13 +144,10 @@ func queryCommand() *cobra.Command {
 		authcmd.QueryTxsByEventsCmd(),
 		authcmd.QueryTxCmd(),
 	)
-
 	app.ModuleBasics.AddQueryCommands(cmd)
-
-	return cmd
 }
 
-func txCommand() *cobra.Command {
+func buildTxCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "tx",
 		Short:                      "Transactions subcommands",
@@ -215,6 +156,11 @@ func txCommand() *cobra.Command {
 		RunE:                       client.ValidateCmd,
 	}
 
+	addTxSubCommands(cmd)
+	return cmd
+}
+
+func addTxSubCommands(cmd *cobra.Command) {
 	cmd.AddCommand(
 		authcmd.GetSignCommand(),
 		authcmd.GetSignBatchCommand(),
@@ -226,25 +172,14 @@ func txCommand() *cobra.Command {
 		authcmd.GetDecodeCommand(),
 		authcmd.GetAuxToFeeCommand(),
 	)
-
 	app.ModuleBasics.AddTxCommands(cmd)
-
-	return cmd
 }
 
-// newApp creates the application
-func newApp(
-	logger log.Logger,
-	db dbm.DB,
-	traceStore io.Writer,
-	appOpts servertypes.AppOptions,
-) servertypes.Application {
-	baseappOptions := server.DefaultBaseappOptions(appOpts)
+// App Creation and Export
 
-	var wasmOpts []wasm.Option
-	if cast.ToBool(appOpts.Get("telemetry.enabled")) {
-		wasmOpts = append(wasmOpts, wasmkeeper.WithVMCacheMetrics(prometheus.DefaultRegisterer))
-	}
+func newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, appOpts servertypes.AppOptions) servertypes.Application {
+	baseappOptions := server.DefaultBaseappOptions(appOpts)
+	wasmOpts := createWasmOptions(appOpts)
 
 	return app.NewWasmApp(
 		logger, db, traceStore, true,
@@ -255,7 +190,13 @@ func newApp(
 	)
 }
 
-// appExport creates a new wasm app (optionally at a given height) and exports state.
+func createWasmOptions(appOpts servertypes.AppOptions) []wasm.Option {
+	if !cast.ToBool(appOpts.Get("telemetry.enabled")) {
+		return nil
+	}
+	return []wasm.Option{wasmkeeper.WithVMCacheMetrics(prometheus.DefaultRegisterer)}
+}
+
 func appExport(
 	logger log.Logger,
 	db dbm.DB,
@@ -266,31 +207,17 @@ func appExport(
 	appOpts servertypes.AppOptions,
 	modulesToExport []string,
 ) (servertypes.ExportedApp, error) {
-	var wasmApp *app.WasmApp
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)
 	if !ok || homePath == "" {
 		return servertypes.ExportedApp{}, errors.New("application home is not set")
 	}
 
-	viperAppOpts, ok := appOpts.(*viper.Viper)
-	if !ok {
-		return servertypes.ExportedApp{}, errors.New("appOpts is not viper.Viper")
+	viperAppOpts, err := validateViperAppOpts(appOpts)
+	if err != nil {
+		return servertypes.ExportedApp{}, err
 	}
 
-	// overwrite the FlagInvCheckPeriod
-	viperAppOpts.Set(server.FlagInvCheckPeriod, 1)
-	appOpts = viperAppOpts
-
-	var emptyWasmOpts []wasm.Option
-	wasmApp = app.NewWasmApp(
-		logger,
-		db,
-		traceStore,
-		height == -1,
-		app.GetEnabledProposals(),
-		appOpts,
-		emptyWasmOpts,
-	)
+	wasmApp := createWasmAppForExport(logger, db, traceStore, height, viperAppOpts)
 
 	if height != -1 {
 		if err := wasmApp.LoadHeight(height); err != nil {
@@ -299,4 +226,25 @@ func appExport(
 	}
 
 	return wasmApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs, modulesToExport)
+}
+
+func validateViperAppOpts(appOpts servertypes.AppOptions) (*viper.Viper, error) {
+	viperAppOpts, ok := appOpts.(*viper.Viper)
+	if !ok {
+		return nil, errors.New("appOpts is not viper.Viper")
+	}
+	viperAppOpts.Set(server.FlagInvCheckPeriod, 1)
+	return viperAppOpts, nil
+}
+
+func createWasmAppForExport(logger log.Logger, db dbm.DB, traceStore io.Writer, height int64, appOpts servertypes.AppOptions) *app.WasmApp {
+	return app.NewWasmApp(
+		logger, 
+		db,
+		traceStore,
+		height == -1,
+		app.GetEnabledProposals(),
+		appOpts,
+		nil,
+	)
 }
